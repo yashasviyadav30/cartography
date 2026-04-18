@@ -1,3 +1,4 @@
+import copy
 from unittest.mock import MagicMock
 from unittest.mock import patch
 
@@ -15,10 +16,13 @@ TEST_UPDATE_TAG = tests.data.aws.cloudformation.TEST_UPDATE_TAG
 @patch.object(
     cartography.intel.aws.cloudformation,
     "get_cloudformation_stacks",
-    return_value=tests.data.aws.cloudformation.DESCRIBE_STACKS,
 )
 def test_sync_cloudformation_stacks(mock_get_stacks, neo4j_session):
-    # Arrange
+    # Arrange: Prevent test data leakage by returning a deepcopy of the fixture
+    mock_get_stacks.return_value = copy.deepcopy(
+        tests.data.aws.cloudformation.DESCRIBE_STACKS
+    )
+
     boto3_session = MagicMock()
     create_test_account(neo4j_session, TEST_ACCOUNT_ID, TEST_UPDATE_TAG)
 

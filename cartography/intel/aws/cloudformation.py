@@ -7,7 +7,7 @@ import neo4j
 
 from cartography.client.core.tx import load
 from cartography.graph.job import GraphJob
-from cartography.intel.aws.util.botocore_config import get_botocore_config
+from cartography.intel.aws.util.botocore_config import create_boto3_client
 from cartography.models.aws.cloudformation.stack import CloudFormationStackSchema
 from cartography.stats import get_stats_client
 from cartography.util import aws_handle_regions
@@ -24,25 +24,29 @@ def get_cloudformation_stacks(
     boto3_session: boto3.session.Session,
     region: str,
 ) -> list[dict[str, Any]]:
-    client = boto3_session.client(
+    client = create_boto3_client(
+        boto3_session,
         "cloudformation",
         region_name=region,
-        config=get_botocore_config(),
     )
     stacks: list[dict[str, Any]] = []
     paginator = client.get_paginator("describe_stacks")
     for page in paginator.paginate():
-        stacks.extend(page["Stacks"])
+        # Filtering DELETE_COMPLETE stacks to prevent false-positive CAN_EXEC escalation paths
+        stacks.extend(
+            s
+            for s in page.get("Stacks", [])
+            if s.get("StackStatus") != "DELETE_COMPLETE"
+        )
     return stacks
 
 
 def transform_cloudformation_stacks(
     stacks: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
+) -> None:
     for stack in stacks:
         if stack.get("Tags") is not None:
             stack["Tags"] = json.dumps(stack["Tags"])
-    return stacks
 
 
 @timeit
@@ -96,10 +100,10 @@ def sync(
             current_aws_account_id,
         )
         raw_stacks = get_cloudformation_stacks(boto3_session, region)
-        stacks = transform_cloudformation_stacks(raw_stacks)
+        transform_cloudformation_stacks(raw_stacks)
         load_cloudformation_stacks(
             neo4j_session,
-            stacks,
+            raw_stacks,
             region,
             current_aws_account_id,
             update_tag,
